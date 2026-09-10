@@ -222,6 +222,16 @@
     display: none;
   }
   #error-banner.info { background: var(--accent); }
+  .manage-row { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:12px; }
+  .manage-row button, .manage-row label {
+    border:1px solid var(--border); background:var(--panel); color:var(--text);
+    border-radius:8px; padding:9px 14px; font-size:14px; cursor:pointer;
+  }
+  .manage-row .danger { color:#a6332a; }
+  #upload-input { display:none; }
+  #upload-progress { margin-top:10px; color:var(--muted); font-size:13px; min-height:18px; }
+  #manage-toggle { display:none; }
+
 </style>
 </head>
 <body>
@@ -229,7 +239,7 @@
   <div id="error-banner"></div>
 
   <div id="topbar">
-    <button id="unlock-guide" style="display:none;">Unlock guide</button>
+    <button id="manage-toggle">Manage book</button>
     <button id="toc-toggle" title="Table of contents" style="display:none;">☰ Contents</button>
     <div id="book-title"></div>
     <button id="settings-toggle" title="Display settings" style="display:none;">Aa</button>
@@ -259,6 +269,12 @@
       <h1>Lonely Planet Peru</h1>
       <p>This guide is stored privately. Enter the DOPPERU passkey to open it.</p>
       <button id="landing-unlock" class="filebtn" type="button">Unlock guide</button>
+      <div class="manage-row">
+        <label for="upload-input">Upload / replace EPUB</label>
+        <input id="upload-input" type="file" accept=".epub,application/epub+zip" />
+        <button id="remove-book" class="danger" type="button">Remove stored book</button>
+      </div>
+      <div id="upload-progress"></div>
     </div>
   </div>
 
@@ -281,8 +297,11 @@
 (function () {
   "use strict";
 
-  var unlockGuideBtn = document.getElementById("unlock-guide");
+  var manageToggle = document.getElementById("manage-toggle");
   var landingUnlockBtn = document.getElementById("landing-unlock");
+  var uploadInput = document.getElementById("upload-input");
+  var removeBookBtn = document.getElementById("remove-book");
+  var uploadProgress = document.getElementById("upload-progress");
   var landing = document.getElementById("landing");
   var readerWrap = document.getElementById("reader-wrap");
   var viewerEl = document.getElementById("viewer");
@@ -333,6 +352,27 @@
   function getStoredGuideKey() { return localStorage.getItem(GUIDE_KEY_STORAGE) || ""; }
   function setStoredGuideKey(k) { if (k) localStorage.setItem(GUIDE_KEY_STORAGE, k); }
   function clearStoredGuideKey() { localStorage.removeItem(GUIDE_KEY_STORAGE); }
+
+  function idFor(file, metadataIdentifier) {
+    if (metadataIdentifier) return "id:" + metadataIdentifier;
+    return "file:" + (file && file.name ? file.name : "guide") + ":" + (file && file.size ? file.size : 0);
+  }
+
+  async function getGuideKey(forcePrompt) {
+    var key = forcePrompt ? "" : getStoredGuideKey();
+    if (!key) key = window.prompt("DOPPERU passkey");
+    if (!key) return "";
+    return key;
+  }
+
+  async function requestGuide(action, key) {
+    return fetch("/api/guide", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: key, action: action }),
+      cache: "no-store"
+    });
+  }
 
   function openArrayBuffer(arrayBuffer, fileMeta) {
     if (book) {
@@ -407,41 +447,123 @@
   }
 
   async function loadPrivateGuide(forcePrompt) {
-    var key = forcePrompt ? "" : getStoredGuideKey();
-    if (!key) key = window.prompt("DOPPERU passkey");
+    var key = await getGuideKey(forcePrompt);
     if (!key) return;
 
     try {
       dropZone.querySelector("h1").textContent = "Opening…";
-      dropZone.querySelector("p").textContent = "Unlocking Lonely Planet Peru.";
+      dropZone.querySelector("p").textContent = "Loading the private Lonely Planet EPUB.";
+      if (landingUnlockBtn) landingUnlockBtn.disabled = true;
 
-      var response = await fetch("/api/guide", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: key }),
-        cache: "no-store"
-      });
-
-      var data = null;
-      try { data = await response.json(); } catch (e) {}
+      var response = await requestGuide("read", key);
 
       if (response.status === 401) {
         clearStoredGuideKey();
         throw new Error("Wrong passkey");
       }
-      if (!response.ok || !data || !data.url) {
-        throw new Error((data && data.error) || ("Guide access failed (" + response.status + ")"));
+      if (response.status === 404) {
+        throw new Error("No EPUB is stored yet. Use Upload / replace EPUB below.");
+      }
+      if (!response.ok) {
+        var detail = "";
+        try {
+          var data = await response.json();
+          detail = data && data.error ? ": " + data.error : "";
+        } catch (e) {}
+        throw new Error("Guide access failed (" + response.status + ")" + detail);
       }
 
+      var buf = await response.arrayBuffer();
+      if (!buf || buf.byteLength < 1000) throw new Error("The guide response was empty or incomplete.");
+
       setStoredGuideKey(key);
-      await loadFromUrl(data.url);
+      if (manageToggle) manageToggle.style.display = "";
+      openArrayBuffer(buf, { name: "Lonely Planet Peru.epub", size: buf.byteLength });
     } catch (err) {
       console.error(err);
       landing.classList.remove("hidden");
       readerWrap.classList.add("hidden");
       dropZone.querySelector("h1").textContent = "Lonely Planet Peru";
-      dropZone.querySelector("p").textContent = "This guide is stored privately. Enter the DOPPERU passkey to open it.";
+      dropZone.querySelector("p").textContent = "Private guide. Unlock it, upload an EPUB, or remove the stored one.";
       showError(err && err.message ? err.message : "Could not open guide.");
+    } finally {
+      if (landingUnlockBtn) landingUnlockBtn.disabled = false;
+    }
+  }
+
+  async function uploadGuide(file) {
+    if (!file) return;
+    if (!/\.epub$/i.test(file.name)) {
+      showError("Please choose an .epub file.");
+      return;
+    }
+
+    var key = await getGuideKey(false);
+    if (!key) return;
+
+    try {
+      uploadProgress.textContent = "Preparing secure upload…";
+      var tokenResponse = await requestGuide("upload-url", key);
+      if (tokenResponse.status === 401) {
+        clearStoredGuideKey();
+        throw new Error("Wrong passkey");
+      }
+      if (!tokenResponse.ok) {
+        var tokenData = await tokenResponse.json().catch(function(){ return {}; });
+        throw new Error("Could not prepare upload" + (tokenData.error ? ": " + tokenData.error : ""));
+      }
+      var data = await tokenResponse.json();
+
+      uploadProgress.textContent = "Uploading " + Math.round(file.size / 1024 / 1024) + " MB directly to private Blob…";
+      var putResponse = await fetch(data.url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/epub+zip" },
+        body: file
+      });
+      if (!putResponse.ok) {
+        var text = await putResponse.text().catch(function(){ return ""; });
+        throw new Error("Blob upload failed (" + putResponse.status + ")" + (text ? ": " + text.slice(0,180) : ""));
+      }
+
+      setStoredGuideKey(key);
+      uploadProgress.textContent = "Uploaded. Opening…";
+      showInfo("EPUB uploaded to the private reader-blob store.");
+      setTimeout(function(){ loadPrivateGuide(false); }, 500);
+    } catch (err) {
+      console.error(err);
+      uploadProgress.textContent = "";
+      showError(err && err.message ? err.message : "Upload failed.");
+    } finally {
+      if (uploadInput) uploadInput.value = "";
+    }
+  }
+
+  async function removeStoredGuide() {
+    var key = await getGuideKey(false);
+    if (!key) return;
+    if (!window.confirm("Remove Lonely Planet Peru.epub from the private Blob store?")) return;
+
+    try {
+      var response = await requestGuide("delete", key);
+      if (response.status === 401) {
+        clearStoredGuideKey();
+        throw new Error("Wrong passkey");
+      }
+      if (!response.ok) {
+        var data = await response.json().catch(function(){ return {}; });
+        throw new Error("Remove failed" + (data.error ? ": " + data.error : ""));
+      }
+      if (book) { book.destroy(); book = null; }
+      rendition = null;
+      readerWrap.classList.add("hidden");
+      landing.classList.remove("hidden");
+      dropZone.querySelector("h1").textContent = "No guide stored";
+      dropZone.querySelector("p").textContent = "Upload an EPUB once and this reader will keep using that private Blob.";
+      uploadProgress.textContent = "";
+      showInfo("Stored EPUB removed.");
+    } catch (err) {
+      console.error(err);
+      showError(err && err.message ? err.message : "Could not remove book.");
     }
   }
 
@@ -481,12 +603,22 @@
     tocPanel.classList.remove("open");
     settingsPanel.classList.remove("open");
     bookTitleEl.textContent = "";
-    loadPrivateGuide(false);
+    dropZone.querySelector("h1").textContent = "Lonely Planet Peru";
+    dropZone.querySelector("p").textContent = "Private guide. Unlock it, upload an EPUB, or remove the stored one.";
   }
 
   // ---- Events ----
   if (landingUnlockBtn) landingUnlockBtn.addEventListener("click", function () { loadPrivateGuide(true); });
-  if (unlockGuideBtn) unlockGuideBtn.addEventListener("click", function () { loadPrivateGuide(true); });
+  if (uploadInput) uploadInput.addEventListener("change", function (e) { uploadGuide(e.target.files && e.target.files[0]); });
+  if (removeBookBtn) removeBookBtn.addEventListener("click", removeStoredGuide);
+  if (manageToggle) manageToggle.addEventListener("click", function () {
+    if (book) { book.destroy(); book = null; }
+    rendition = null;
+    readerWrap.classList.add("hidden");
+    landing.classList.remove("hidden");
+    dropZone.querySelector("h1").textContent = "Manage private guide";
+    dropZone.querySelector("p").textContent = "Upload a replacement EPUB or remove the stored book.";
+  });
 
   document.getElementById("nav-prev").addEventListener("click", function () {
     if (rendition) rendition.prev();
@@ -533,26 +665,6 @@
   });
 
   closeBookBtn.addEventListener("click", closeBook);
-
-  /* lets another site (or a bookmark) hand this reader a file directly —
-     e.g. https://this-reader.vercel.app/?url=<link-to-an-epub> — instead of
-     always relying on whatever book is saved to this app's own storage. The linked file
-     needs to actually be fetchable cross-origin (a plain public URL with
-     permissive CORS, which is what Vercel Blob's public access serves). */
-  function loadFromUrl(url) {
-    dropZone.querySelector("h1").textContent = "Opening…";
-    dropZone.querySelector("p").textContent = "Fetching the linked EPUB.";
-    fetch(url).then(function (r) {
-      if (!r.ok) throw new Error("Could not fetch that file (" + r.status + ").");
-      return r.arrayBuffer();
-    }).then(function (buf) {
-      var name = "Guide";
-      try { name = decodeURIComponent(url.split("/").pop().split("?")[0]) || name; } catch (e) {}
-      openArrayBuffer(buf, { name: name });
-    }).catch(function (e) {
-      showError("Could not load the linked EPUB — " + (e && e.message ? e.message : "unknown error"));
-    });
-  }
 
   // ---- init ----
   loadPrivateGuide(false);

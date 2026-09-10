@@ -97,16 +97,6 @@
     cursor: pointer;
     font-size: 14px;
   }
-  #recent-list { margin-top: 24px; text-align: left; }
-  #recent-list h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 8px; }
-  #recent-list ul { list-style: none; padding: 0; margin: 0; }
-  #recent-list li {
-    padding: 8px 10px;
-    border-radius: 6px;
-    font-size: 14px;
-    color: var(--muted);
-    cursor: default;
-  }
 
   /* ---------- Reader area ---------- */
   #reader-wrap {
@@ -231,6 +221,7 @@
     text-align: center;
     display: none;
   }
+  #error-banner.info { background: var(--accent); }
 </style>
 </head>
 <body>
@@ -238,7 +229,7 @@
   <div id="error-banner"></div>
 
   <div id="topbar">
-    <label class="filebtn" for="file-input">Open EPUB</label>
+    <label class="filebtn" for="file-input">Replace book</label>
     <input type="file" id="file-input" accept=".epub,application/epub+zip" />
     <button id="toc-toggle" title="Table of contents" style="display:none;">☰ Contents</button>
     <div id="book-title"></div>
@@ -267,12 +258,8 @@
   <div id="landing">
     <div id="drop-zone">
       <h1>Your EPUB library</h1>
-      <p>Drop an .epub file here, or choose one from your device.<br>Nothing is uploaded — it stays on your device.</p>
+      <p>Drop an .epub file here, or choose one from your device.<br>It's saved here (password-protected) so it's ready next time.</p>
       <label class="filebtn" for="file-input">Choose file</label>
-      <div id="recent-list" style="display:none;">
-        <h2>Recently opened</h2>
-        <ul></ul>
-      </div>
     </div>
   </div>
 
@@ -311,8 +298,6 @@
   var dropZone = document.getElementById("drop-zone");
   var errorBanner = document.getElementById("error-banner");
   var themeSelect = document.getElementById("theme-select");
-  var recentListWrap = document.getElementById("recent-list");
-  var recentListUl = recentListWrap.querySelector("ul");
 
   var book = null;
   var rendition = null;
@@ -326,39 +311,27 @@
   };
 
   function showError(msg) {
+    errorBanner.className = "";
     errorBanner.textContent = msg;
     errorBanner.style.display = "block";
     setTimeout(function () { errorBanner.style.display = "none"; }, 6000);
+  }
+
+  function showInfo(msg) {
+    errorBanner.className = "info";
+    errorBanner.textContent = msg;
+    errorBanner.style.display = "block";
+    setTimeout(function () { errorBanner.style.display = "none"; }, 3000);
   }
 
   function setAppTheme(name) {
     document.documentElement.setAttribute("data-theme", name === "dark" ? "dark" : "light");
   }
 
-  function loadRecents() {
-    try {
-      return JSON.parse(localStorage.getItem("epub-recents") || "[]");
-    } catch (e) { return []; }
-  }
-
-  function saveRecent(id, title) {
-    var recents = loadRecents().filter(function (r) { return r.id !== id; });
-    recents.unshift({ id: id, title: title, opened: Date.now() });
-    recents = recents.slice(0, 8);
-    localStorage.setItem("epub-recents", JSON.stringify(recents));
-  }
-
-  function renderRecents() {
-    var recents = loadRecents();
-    if (!recents.length) { recentListWrap.style.display = "none"; return; }
-    recentListWrap.style.display = "block";
-    recentListUl.innerHTML = "";
-    recents.forEach(function (r) {
-      var li = document.createElement("li");
-      li.textContent = r.title;
-      recentListUl.appendChild(li);
-    });
-  }
+  var EDIT_KEY_STORAGE = "epub-edit-key";
+  function getStoredKey() { return localStorage.getItem(EDIT_KEY_STORAGE) || ""; }
+  function setStoredKey(k) { if (k) localStorage.setItem(EDIT_KEY_STORAGE, k); }
+  function clearStoredKey() { localStorage.removeItem(EDIT_KEY_STORAGE); }
 
   function idFor(file, metadataIdentifier) {
     if (metadataIdentifier) return "id:" + metadataIdentifier;
@@ -394,8 +367,6 @@
       var title = (metadata && metadata.title) || (fileMeta && fileMeta.name) || "Untitled";
       currentBookId = idFor(fileMeta || { name: title, size: 0 }, metadata && metadata.identifier);
       bookTitleEl.textContent = title;
-      saveRecent(currentBookId, title);
-      renderRecents();
 
       landing.classList.add("hidden");
       readerWrap.classList.remove("hidden");
@@ -454,6 +425,61 @@
     // no-op placeholder in case future per-frame tweaks are needed
   }
 
+  /* Stores the current book server-side (Vercel Blob) so this reader shows
+     the same book to anyone who opens the deployed link, without them
+     picking a file. Reading is always open; only replacing needs the
+     password, checked server-side in api/book.js. */
+  function persistBook(file) {
+    var key = getStoredKey();
+    var ask = !key;
+    if (ask) {
+      key = window.prompt("Password to save this book here (so it's remembered next time):");
+      if (!key) {
+        showInfo("Opened, but not saved — no password entered.");
+        return;
+      }
+    }
+    showInfo("Saving to your library…");
+    import("https://esm.sh/@vercel/blob@2.0.0/client").then(function (mod) {
+      return mod.upload("book.epub", file, {
+        access: "public",
+        handleUploadUrl: "/api/book",
+        clientPayload: key,
+        multipart: true
+      });
+    }).then(function () {
+      setStoredKey(key);
+      showInfo("Saved — this is now the book everyone with the link sees.");
+    }).catch(function (e) {
+      var msg = String((e && e.message) || e);
+      if (msg.indexOf("bad_key") !== -1) {
+        clearStoredKey();
+        showError("Wrong password — opened locally, but not saved.");
+      } else {
+        showError("Could not save the book: " + msg);
+      }
+    });
+  }
+
+  function checkServerBook() {
+    fetch("/api/book", { cache: "no-store" }).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (info) {
+      if (!info || !info.url) return;
+      dropZone.querySelector("h1").textContent = "Opening…";
+      dropZone.querySelector("p").textContent = "Loading your saved book.";
+      return fetch(info.url, { cache: "no-store" }).then(function (r) {
+        if (!r.ok) throw new Error("fetch failed (" + r.status + ")");
+        return r.arrayBuffer();
+      }).then(function (buf) {
+        openArrayBuffer(buf, { name: "Book" });
+      });
+    }).catch(function (e) {
+      console.error(e);
+      showError("Could not load your saved book — pick one below.");
+    });
+  }
+
   function buildToc(toc) {
     tocList.innerHTML = "";
     function renderItems(items, container) {
@@ -491,13 +517,13 @@
     settingsPanel.classList.remove("open");
     bookTitleEl.textContent = "";
     fileInput.value = "";
-    renderRecents();
+    checkServerBook();
   }
 
   // ---- Events ----
   fileInput.addEventListener("change", function (e) {
     var f = e.target.files && e.target.files[0];
-    if (f) openFile(f);
+    if (f) { openFile(f); persistBook(f); }
   });
 
   ["dragover", "dragenter"].forEach(function (evt) {
@@ -513,7 +539,7 @@
     e.preventDefault();
     dropZone.classList.remove("dragover");
     var f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) openFile(f);
+    if (f) { openFile(f); persistBook(f); }
   });
 
   document.getElementById("nav-prev").addEventListener("click", function () {
@@ -562,8 +588,31 @@
 
   closeBookBtn.addEventListener("click", closeBook);
 
+  /* lets another site (or a bookmark) hand this reader a file directly —
+     e.g. https://this-reader.vercel.app/?url=<link-to-an-epub> — instead of
+     always relying on whatever book is saved to this app's own storage. The linked file
+     needs to actually be fetchable cross-origin (a plain public URL with
+     permissive CORS, which is what Vercel Blob's public access serves). */
+  function loadFromUrl(url) {
+    dropZone.querySelector("h1").textContent = "Opening…";
+    dropZone.querySelector("p").textContent = "Fetching the linked EPUB.";
+    fetch(url).then(function (r) {
+      if (!r.ok) throw new Error("Could not fetch that file (" + r.status + ").");
+      return r.arrayBuffer();
+    }).then(function (buf) {
+      var name = "Guide";
+      try { name = decodeURIComponent(url.split("/").pop().split("?")[0]) || name; } catch (e) {}
+      openArrayBuffer(buf, { name: name });
+    }).catch(function (e) {
+      showError("Could not load the linked EPUB — " + (e && e.message ? e.message : "unknown error"));
+    });
+  }
+
   // ---- init ----
-  renderRecents();
+  var params = new URLSearchParams(location.search);
+  var remoteUrl = params.get("url");
+  if (remoteUrl) loadFromUrl(remoteUrl);
+  else checkServerBook();
 })();
 </script>
 </body>

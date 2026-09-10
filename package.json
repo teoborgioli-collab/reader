@@ -1,9 +1,9 @@
 {
-  "name": "epub-reader",
+  "name": "epub-reader-private",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "dependencies": {
-    "@vercel/blob": "^2.0.0"
+    "@vercel/blob": "^2.4.0"
   }
 }

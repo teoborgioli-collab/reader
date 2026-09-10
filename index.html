@@ -229,8 +229,7 @@
   <div id="error-banner"></div>
 
   <div id="topbar">
-    <label class="filebtn" for="file-input">Replace book</label>
-    <input type="file" id="file-input" accept=".epub,application/epub+zip" />
+    <button id="unlock-guide" style="display:none;">Unlock guide</button>
     <button id="toc-toggle" title="Table of contents" style="display:none;">☰ Contents</button>
     <div id="book-title"></div>
     <button id="settings-toggle" title="Display settings" style="display:none;">Aa</button>
@@ -257,9 +256,9 @@
 
   <div id="landing">
     <div id="drop-zone">
-      <h1>Your EPUB library</h1>
-      <p>Drop an .epub file here, or choose one from your device.<br>It's saved here (password-protected) so it's ready next time.</p>
-      <label class="filebtn" for="file-input">Choose file</label>
+      <h1>Lonely Planet Peru</h1>
+      <p>This guide is stored privately. Enter the DOPPERU passkey to open it.</p>
+      <button id="landing-unlock" class="filebtn" type="button">Unlock guide</button>
     </div>
   </div>
 
@@ -282,7 +281,8 @@
 (function () {
   "use strict";
 
-  var fileInput = document.getElementById("file-input");
+  var unlockGuideBtn = document.getElementById("unlock-guide");
+  var landingUnlockBtn = document.getElementById("landing-unlock");
   var landing = document.getElementById("landing");
   var readerWrap = document.getElementById("reader-wrap");
   var viewerEl = document.getElementById("viewer");
@@ -328,30 +328,11 @@
     document.documentElement.setAttribute("data-theme", name === "dark" ? "dark" : "light");
   }
 
-  var EDIT_KEY_STORAGE = "epub-edit-key";
-  function getStoredKey() { return localStorage.getItem(EDIT_KEY_STORAGE) || ""; }
-  function setStoredKey(k) { if (k) localStorage.setItem(EDIT_KEY_STORAGE, k); }
-  function clearStoredKey() { localStorage.removeItem(EDIT_KEY_STORAGE); }
+  var GUIDE_KEY_STORAGE = "dopperu-guide-key";
 
-  function idFor(file, metadataIdentifier) {
-    if (metadataIdentifier) return "id:" + metadataIdentifier;
-    return "file:" + file.name + ":" + file.size;
-  }
-
-  function openFile(file) {
-    if (!file) return;
-    var reader = new FileReader();
-    reader.onerror = function () { showError("Could not read that file."); };
-    reader.onload = function (ev) {
-      try {
-        openArrayBuffer(ev.target.result, file);
-      } catch (e) {
-        console.error(e);
-        showError("That file doesn't look like a valid EPUB.");
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  }
+  function getStoredGuideKey() { return localStorage.getItem(GUIDE_KEY_STORAGE) || ""; }
+  function setStoredGuideKey(k) { if (k) localStorage.setItem(GUIDE_KEY_STORAGE, k); }
+  function clearStoredGuideKey() { localStorage.removeItem(GUIDE_KEY_STORAGE); }
 
   function openArrayBuffer(arrayBuffer, fileMeta) {
     if (book) {
@@ -425,59 +406,43 @@
     // no-op placeholder in case future per-frame tweaks are needed
   }
 
-  /* Stores the current book server-side (Vercel Blob) so this reader shows
-     the same book to anyone who opens the deployed link, without them
-     picking a file. Reading is always open; only replacing needs the
-     password, checked server-side in api/book.js. */
-  function persistBook(file) {
-    var key = getStoredKey();
-    var ask = !key;
-    if (ask) {
-      key = window.prompt("Password to save this book here (so it's remembered next time):");
-      if (!key) {
-        showInfo("Opened, but not saved — no password entered.");
-        return;
-      }
-    }
-    showInfo("Saving to your library…");
-    import("https://esm.sh/@vercel/blob@2.0.0/client").then(function (mod) {
-      return mod.upload("book.epub", file, {
-        access: "public",
-        handleUploadUrl: "/api/book",
-        clientPayload: key,
-        multipart: true
-      });
-    }).then(function () {
-      setStoredKey(key);
-      showInfo("Saved — this is now the book everyone with the link sees.");
-    }).catch(function (e) {
-      var msg = String((e && e.message) || e);
-      if (msg.indexOf("bad_key") !== -1) {
-        clearStoredKey();
-        showError("Wrong password — opened locally, but not saved.");
-      } else {
-        showError("Could not save the book: " + msg);
-      }
-    });
-  }
+  async function loadPrivateGuide(forcePrompt) {
+    var key = forcePrompt ? "" : getStoredGuideKey();
+    if (!key) key = window.prompt("DOPPERU passkey");
+    if (!key) return;
 
-  function checkServerBook() {
-    fetch("/api/book", { cache: "no-store" }).then(function (r) {
-      return r.ok ? r.json() : null;
-    }).then(function (info) {
-      if (!info || !info.url) return;
+    try {
       dropZone.querySelector("h1").textContent = "Opening…";
-      dropZone.querySelector("p").textContent = "Loading your saved book.";
-      return fetch(info.url, { cache: "no-store" }).then(function (r) {
-        if (!r.ok) throw new Error("fetch failed (" + r.status + ")");
-        return r.arrayBuffer();
-      }).then(function (buf) {
-        openArrayBuffer(buf, { name: "Book" });
+      dropZone.querySelector("p").textContent = "Unlocking Lonely Planet Peru.";
+
+      var response = await fetch("/api/guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: key }),
+        cache: "no-store"
       });
-    }).catch(function (e) {
-      console.error(e);
-      showError("Could not load your saved book — pick one below.");
-    });
+
+      var data = null;
+      try { data = await response.json(); } catch (e) {}
+
+      if (response.status === 401) {
+        clearStoredGuideKey();
+        throw new Error("Wrong passkey");
+      }
+      if (!response.ok || !data || !data.url) {
+        throw new Error((data && data.error) || ("Guide access failed (" + response.status + ")"));
+      }
+
+      setStoredGuideKey(key);
+      await loadFromUrl(data.url);
+    } catch (err) {
+      console.error(err);
+      landing.classList.remove("hidden");
+      readerWrap.classList.add("hidden");
+      dropZone.querySelector("h1").textContent = "Lonely Planet Peru";
+      dropZone.querySelector("p").textContent = "This guide is stored privately. Enter the DOPPERU passkey to open it.";
+      showError(err && err.message ? err.message : "Could not open guide.");
+    }
   }
 
   function buildToc(toc) {
@@ -516,31 +481,12 @@
     tocPanel.classList.remove("open");
     settingsPanel.classList.remove("open");
     bookTitleEl.textContent = "";
-    fileInput.value = "";
-    checkServerBook();
+    loadPrivateGuide(false);
   }
 
   // ---- Events ----
-  fileInput.addEventListener("change", function (e) {
-    var f = e.target.files && e.target.files[0];
-    if (f) { openFile(f); persistBook(f); }
-  });
-
-  ["dragover", "dragenter"].forEach(function (evt) {
-    dropZone.addEventListener(evt, function (e) {
-      e.preventDefault();
-      dropZone.classList.add("dragover");
-    });
-  });
-  ["dragleave", "dragend"].forEach(function (evt) {
-    dropZone.addEventListener(evt, function () { dropZone.classList.remove("dragover"); });
-  });
-  dropZone.addEventListener("drop", function (e) {
-    e.preventDefault();
-    dropZone.classList.remove("dragover");
-    var f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) { openFile(f); persistBook(f); }
-  });
+  if (landingUnlockBtn) landingUnlockBtn.addEventListener("click", function () { loadPrivateGuide(true); });
+  if (unlockGuideBtn) unlockGuideBtn.addEventListener("click", function () { loadPrivateGuide(true); });
 
   document.getElementById("nav-prev").addEventListener("click", function () {
     if (rendition) rendition.prev();
@@ -609,10 +555,7 @@
   }
 
   // ---- init ----
-  var params = new URLSearchParams(location.search);
-  var remoteUrl = params.get("url");
-  if (remoteUrl) loadFromUrl(remoteUrl);
-  else checkServerBook();
+  loadPrivateGuide(false);
 })();
 </script>
 </body>

@@ -1,673 +1,261 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Epub Reader</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f3efe7">
+<title>Peru Guide</title>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
 <style>
-  :root {
-    --bg: #f3efe7;
-    --panel: #ffffff;
-    --text: #222;
-    --muted: #777;
-    --accent: #3a5a40;
-    --border: #ddd6c6;
-  }
-  [data-theme="dark"] {
-    --bg: #1b1b1d;
-    --panel: #242426;
-    --text: #e8e6e1;
-    --muted: #999;
-    --accent: #8fbf9f;
-    --border: #3a3a3d;
-  }
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0;
-    height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  }
-  #app {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-  }
+:root{--bg:#f3efe7;--panel:#fff;--text:#222;--muted:#777;--accent:#3a5a40;--accent2:#29412e;--border:#ddd6c6;--danger:#ad352c;--shadow:0 18px 50px rgba(30,28,24,.08)}
+[data-theme="dark"]{--bg:#18191a;--panel:#242526;--text:#eee;--muted:#aaa;--accent:#86b895;--accent2:#a9cfb4;--border:#383a3c;--shadow:0 18px 50px rgba(0,0,0,.3)}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}button,input{font:inherit}button{cursor:pointer}.hidden{display:none!important}
+#toast{position:fixed;left:50%;top:max(14px,env(safe-area-inset-top));transform:translateX(-50%);z-index:100;max-width:min(90vw,620px);padding:11px 16px;border-radius:12px;background:#b83a2f;color:#fff;font-weight:650;text-align:center;box-shadow:var(--shadow);display:none}#toast.info{background:var(--accent)}
 
-  /* ---------- Top bar ---------- */
-  #topbar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-    z-index: 20;
-  }
-  #topbar button, #topbar select, #topbar label.filebtn {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 14px;
-    cursor: pointer;
-  }
-  #topbar button:hover, #topbar label.filebtn:hover { background: var(--border); }
-  #book-title {
-    flex: 1;
-    text-align: center;
-    font-size: 14px;
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  input[type="file"] { display: none; }
+/* Library */
+#library{min-height:100%;display:flex;align-items:center;justify-content:center;padding:calc(28px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom))}.card{width:min(560px,100%);background:var(--panel);border:1px solid var(--border);border-radius:24px;padding:30px;box-shadow:var(--shadow)}.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:750}.card h1{font-size:34px;letter-spacing:-.035em;margin:8px 0 8px}.lead{color:var(--muted);line-height:1.5;margin:0 0 24px}.auth{display:flex;gap:9px}.auth input{min-width:0;flex:1;border:1px solid var(--border);background:var(--bg);color:var(--text);padding:12px 14px;border-radius:12px;outline:none}.auth input:focus{border-color:var(--accent)}.primary,.secondary,.danger{border:0;border-radius:12px;padding:12px 16px;font-weight:700}.primary{background:var(--accent);color:#fff}.primary:hover{background:var(--accent2)}.secondary{background:var(--bg);color:var(--text);border:1px solid var(--border)}.danger{background:transparent;color:var(--danger);border:1px solid var(--border)}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.statusbox{margin-top:22px;padding:18px;border:1px solid var(--border);background:var(--bg);border-radius:16px}.status-title{font-weight:760}.status-detail{font-size:13px;color:var(--muted);margin-top:5px}.upload-zone{margin-top:16px;border:2px dashed var(--border);border-radius:16px;padding:22px;text-align:center}.upload-zone.drag{border-color:var(--accent)}#fileInput{display:none}.upload-zone p{margin:0 0 14px;color:var(--muted);font-size:14px}.progress-wrap{margin-top:18px}.progress-head{display:flex;justify-content:space-between;gap:10px;font-size:13px;color:var(--muted);margin-bottom:7px}.track{height:9px;border-radius:99px;background:var(--border);overflow:hidden}.fill{height:100%;width:0;background:var(--accent);transition:width .12s linear}.small-note{font-size:12px;color:var(--muted);line-height:1.45;margin-top:16px}
 
-  /* ---------- Landing / drop zone ---------- */
-  #landing {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 40px;
-  }
-  #landing.hidden { display: none; }
-  #drop-zone {
-    border: 2px dashed var(--border);
-    border-radius: 12px;
-    padding: 60px 40px;
-    max-width: 420px;
-  }
-  #drop-zone.dragover { border-color: var(--accent); background: var(--panel); }
-  #drop-zone h1 { font-size: 20px; margin-bottom: 8px; }
-  #drop-zone p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
-  #drop-zone .filebtn {
-    display: inline-block;
-    background: var(--accent);
-    color: #fff;
-    padding: 10px 18px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  /* ---------- Reader area ---------- */
-  #reader-wrap {
-    flex: 1;
-    display: flex;
-    position: relative;
-    overflow: hidden;
-  }
-  #reader-wrap.hidden { display: none; }
-
-  #toc-panel {
-    width: 280px;
-    flex-shrink: 0;
-    background: var(--panel);
-    border-right: 1px solid var(--border);
-    overflow-y: auto;
-    padding: 12px;
-    margin-left: -280px;
-    transition: margin-left .2s ease;
-  }
-  #toc-panel.open { margin-left: 0; }
-  #toc-panel h2 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 4px 8px 12px; }
-  #toc-panel a {
-    display: block;
-    padding: 8px;
-    color: var(--text);
-    text-decoration: none;
-    font-size: 14px;
-    border-radius: 6px;
-  }
-  #toc-panel a:hover { background: var(--border); }
-
-  #viewer-col {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    position: relative;
-  }
-  #viewer {
-    flex: 1;
-    min-height: 0;
-  }
-  .nav-zone {
-    position: absolute;
-    top: 0;
-    bottom: 40px;
-    width: 12%;
-    min-width: 44px;
-    z-index: 10;
-    cursor: pointer;
-    background: transparent;
-    border: none;
-    display: flex;
-    align-items: center;
-    transition: background .15s ease;
-  }
-  .nav-zone:hover { background: linear-gradient(to var(--nav-fade-dir, right), rgba(0,0,0,.06), transparent); }
-  .nav-zone::after {
-    content: "";
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    opacity: 0;
-    transform: scale(.8);
-    transition: opacity .15s ease, transform .15s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: 14px 14px;
-  }
-  .nav-zone:hover::after { opacity: 1; transform: scale(1); }
-  #nav-prev { left: 0; justify-content: flex-start; padding-left: 8px; --nav-fade-dir: right; }
-  #nav-next { right: 0; justify-content: flex-end; padding-right: 8px; --nav-fade-dir: left; }
-  #nav-prev::after { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23555' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 18 9 12 15 6'%3E%3C/polyline%3E%3C/svg%3E"); }
-  #nav-next::after { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23555' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='9 18 15 12 9 6'%3E%3C/polyline%3E%3C/svg%3E"); }
-
-  #progress-bar {
-    height: 3px;
-    background: var(--border);
-    flex-shrink: 0;
-  }
-  #progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width .15s ease; }
-  #status-line {
-    padding: 4px 12px;
-    font-size: 12px;
-    color: var(--muted);
-    text-align: center;
-    flex-shrink: 0;
-  }
-
-  #settings-panel {
-    position: absolute;
-    top: 48px;
-    right: 12px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px;
-    display: none;
-    z-index: 30;
-    width: 220px;
-    box-shadow: 0 4px 16px rgba(0,0,0,.15);
-  }
-  #settings-panel.open { display: block; }
-  #settings-panel .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-  #settings-panel .row:last-child { margin-bottom: 0; }
-  #settings-panel label { font-size: 13px; }
-  #settings-panel .stepper { display: flex; gap: 4px; }
-  #settings-panel .stepper button { width: 28px; height: 28px; padding: 0; }
-  #theme-select { flex-shrink: 0; }
-
-  #error-banner {
-    background: #b03a2e;
-    color: #fff;
-    padding: 8px 14px;
-    font-size: 13px;
-    text-align: center;
-    display: none;
-  }
-  #error-banner.info { background: var(--accent); }
-  .manage-row { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:12px; }
-  .manage-row button, .manage-row label {
-    border:1px solid var(--border); background:var(--panel); color:var(--text);
-    border-radius:8px; padding:9px 14px; font-size:14px; cursor:pointer;
-  }
-  .manage-row .danger { color:#a6332a; }
-  #upload-input { display:none; }
-  #upload-progress { margin-top:10px; color:var(--muted); font-size:13px; min-height:18px; }
-  #manage-toggle { display:none; }
-
+/* Reader */
+#readerApp{height:100%;display:flex;flex-direction:column}.topbar{height:54px;display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);background:var(--panel);padding-top:max(7px,env(safe-area-inset-top));min-height:calc(54px + env(safe-area-inset-top));z-index:20}.topbar button{border:1px solid var(--border);background:transparent;color:var(--text);border-radius:9px;padding:7px 10px}.topbar .pageBtn{font-weight:700;white-space:nowrap}.booktitle{flex:1;min-width:0;text-align:center;color:var(--muted);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.readerHelp{flex-shrink:0;text-align:center;font-size:11px;color:var(--muted);padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border)}.readerBody{flex:1;min-height:0;display:flex;position:relative}.toc{width:min(320px,86vw);position:absolute;z-index:30;left:0;top:0;bottom:0;background:var(--panel);border-right:1px solid var(--border);padding:15px;overflow:auto;transform:translateX(-102%);transition:transform .2s ease}.toc.open{transform:translateX(0)}.toc h2{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.toc a{display:block;padding:9px;border-radius:8px;color:var(--text);text-decoration:none;font-size:14px}.toc a:hover{background:var(--bg)}.viewerCol{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}.viewer{flex:1;min-height:0}.nav{position:absolute;z-index:10;top:0;bottom:42px;width:13%;min-width:42px;border:0;background:transparent}.nav.prev{left:0}.nav.next{right:0}.readerTrack{height:3px;background:var(--border)}.readerFill{height:100%;width:0;background:var(--accent)}.readerStatus{text-align:center;color:var(--muted);font-size:12px;padding:5px 10px calc(5px + env(safe-area-inset-bottom))}.settings{position:absolute;right:10px;top:60px;z-index:35;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:var(--shadow);display:none;width:210px}.settings.open{display:block}.settingsRow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0}.settings button,.settings select{border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:7px;padding:5px 8px}
+.loading{position:absolute;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:25px}.loadingCard{width:min(430px,100%);text-align:center}.loadingCard h2{margin:0 0 8px}.loadingCard p{margin:0 0 18px;color:var(--muted)}
+@media(max-width:560px){.card{padding:23px 19px;border-radius:20px}.card h1{font-size:30px}.auth{flex-direction:column}.auth button{width:100%}.topbar{gap:5px}.topbar button{padding:7px 8px}.topbar .pageBtn .word{display:none}.booktitle{font-size:11px}.nav{width:16%}.readerHelp{font-size:10px}}
 </style>
 </head>
 <body>
-<div id="app">
-  <div id="error-banner"></div>
+<div id="toast"></div>
 
-  <div id="topbar">
-    <button id="manage-toggle">Manage book</button>
-    <button id="toc-toggle" title="Table of contents" style="display:none;">☰ Contents</button>
-    <div id="book-title"></div>
-    <button id="settings-toggle" title="Display settings" style="display:none;">Aa</button>
-    <button id="close-book" title="Close book" style="display:none;">✕</button>
-  </div>
+<section id="library">
+  <div class="card">
+    <div class="eyebrow">DOPPERU · Private Library</div>
+    <h1>Lonely Planet Peru</h1>
+    <p class="lead">Upload the EPUB once. It is saved privately in Vercel Blob and can then be opened from any device with your guide passkey.</p>
 
-  <div id="settings-panel">
-    <div class="row">
-      <label>Font size</label>
-      <div class="stepper">
-        <button id="font-dec">−</button>
-        <button id="font-inc">+</button>
+    <div id="locked">
+      <div class="auth">
+        <input id="keyInput" type="password" autocomplete="current-password" placeholder="Guide passkey">
+        <button id="unlockBtn" class="primary">Unlock</button>
       </div>
     </div>
-    <div class="row">
-      <label>Theme</label>
-      <select id="theme-select">
-        <option value="light">Light</option>
-        <option value="sepia">Sepia</option>
-        <option value="dark">Dark</option>
-      </select>
-    </div>
-  </div>
 
-  <div id="landing">
-    <div id="drop-zone">
-      <h1>Lonely Planet Peru</h1>
-      <p>This guide is stored privately. Enter the DOPPERU passkey to open it.</p>
-      <button id="landing-unlock" class="filebtn" type="button">Unlock guide</button>
-      <div class="manage-row">
-        <label for="upload-input">Upload / replace EPUB</label>
-        <input id="upload-input" type="file" accept=".epub,application/epub+zip" />
-        <button id="remove-book" class="danger" type="button">Remove stored book</button>
+    <div id="unlocked" class="hidden">
+      <div class="statusbox">
+        <div id="statusTitle" class="status-title">Checking library…</div>
+        <div id="statusDetail" class="status-detail"></div>
       </div>
-      <div id="upload-progress"></div>
-    </div>
-  </div>
 
-  <div id="reader-wrap" class="hidden">
-    <div id="toc-panel">
-      <h2>Contents</h2>
-      <div id="toc-list"></div>
-    </div>
-    <div id="viewer-col">
-      <div id="viewer"></div>
-      <button class="nav-zone" id="nav-prev" aria-label="Previous page"></button>
-      <button class="nav-zone" id="nav-next" aria-label="Next page"></button>
-      <div id="progress-bar"><div id="progress-fill"></div></div>
-      <div id="status-line"></div>
+      <div class="actions">
+        <button id="openReaderBtn" class="primary hidden">Open reader ↗</button>
+        <button id="forgetKeyBtn" class="secondary">Forget passkey</button>
+        <button id="deleteBtn" class="danger hidden">Remove saved EPUB</button>
+      </div>
+
+      <div class="upload-zone" id="uploadZone">
+        <p id="uploadPrompt">Choose an EPUB to upload. Uploading a new one replaces the previous shared guide.</p>
+        <label class="primary" for="fileInput">Choose EPUB</label>
+        <input id="fileInput" type="file" accept=".epub,application/epub+zip">
+      </div>
+
+      <div id="uploadProgress" class="progress-wrap hidden">
+        <div class="progress-head"><span id="uploadLabel">Preparing upload…</span><span id="uploadPercent">0%</span></div>
+        <div class="track"><div id="uploadFill" class="fill"></div></div>
+      </div>
+
+      <div class="small-note">The EPUB itself stays in the private Blob store. The passkey is remembered only on this device; on another device, enter the same passkey to access the same saved book.</div>
     </div>
   </div>
-</div>
+</section>
+
+<section id="readerApp" class="hidden">
+  <div class="topbar">
+    <button id="tocBtn" title="Contents">☰</button>
+    <button id="topPrevBtn" class="pageBtn" title="Previous page">← <span class="word">Previous</span></button>
+    <div id="bookTitle" class="booktitle">Lonely Planet Peru</div>
+    <button id="topNextBtn" class="pageBtn" title="Next page"><span class="word">Next</span> →</button>
+    <button id="settingsBtn" title="Display settings">Aa</button>
+    <button id="libraryBtn" title="Library">⌂</button>
+  </div>
+  <div class="readerHelp">← Previous &nbsp;•&nbsp; tap page edges or swipe &nbsp;•&nbsp; Next →</div>
+  <div class="readerBody">
+    <aside id="toc" class="toc"><h2>Contents</h2><div id="tocList"></div></aside>
+    <div class="viewerCol">
+      <div id="viewer" class="viewer"></div>
+      <button id="prevBtn" class="nav prev" aria-label="Previous page"></button>
+      <button id="nextBtn" class="nav next" aria-label="Next page"></button>
+      <div class="readerTrack"><div id="readerFill" class="readerFill"></div></div>
+      <div id="readerStatus" class="readerStatus"></div>
+    </div>
+    <div id="settings" class="settings">
+      <div class="settingsRow"><span>Font</span><span><button id="fontDown">−</button> <button id="fontUp">+</button></span></div>
+      <div class="settingsRow"><span>Theme</span><select id="themeSelect"><option value="light">Light</option><option value="sepia">Sepia</option><option value="dark">Dark</option></select></div>
+    </div>
+    <div id="readerLoading" class="loading">
+      <div class="loadingCard">
+        <h2 id="loadingTitle">Opening your guide…</h2>
+        <p id="loadingText">Connecting to your private library.</p>
+        <div class="progress-head"><span id="loadAmount">Starting…</span><span id="loadPercent"></span></div>
+        <div class="track"><div id="loadFill" class="fill"></div></div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <script>
-(function () {
-  "use strict";
+(() => {
+  'use strict';
+  const KEY_NAME = 'dopperu-guide-key';
+  const $ = (id) => document.getElementById(id);
+  const library = $('library'), readerApp = $('readerApp');
+  let guideKey = localStorage.getItem(KEY_NAME) || '';
+  let book = null, rendition = null;
+  let fontSize = parseInt(localStorage.getItem('epub-fontsize') || '100', 10);
 
-  var manageToggle = document.getElementById("manage-toggle");
-  var landingUnlockBtn = document.getElementById("landing-unlock");
-  var uploadInput = document.getElementById("upload-input");
-  var removeBookBtn = document.getElementById("remove-book");
-  var uploadProgress = document.getElementById("upload-progress");
-  var landing = document.getElementById("landing");
-  var readerWrap = document.getElementById("reader-wrap");
-  var viewerEl = document.getElementById("viewer");
-  var tocPanel = document.getElementById("toc-panel");
-  var tocList = document.getElementById("toc-list");
-  var tocToggle = document.getElementById("toc-toggle");
-  var settingsToggle = document.getElementById("settings-toggle");
-  var settingsPanel = document.getElementById("settings-panel");
-  var closeBookBtn = document.getElementById("close-book");
-  var bookTitleEl = document.getElementById("book-title");
-  var progressFill = document.getElementById("progress-fill");
-  var statusLine = document.getElementById("status-line");
-  var dropZone = document.getElementById("drop-zone");
-  var errorBanner = document.getElementById("error-banner");
-  var themeSelect = document.getElementById("theme-select");
-
-  var book = null;
-  var rendition = null;
-  var currentBookId = null;
-  var fontSize = parseInt(localStorage.getItem("epub-fontsize") || "100", 10);
-
-  var THEMES = {
-    light: { body: { background: "#f3efe7", color: "#222" } },
-    sepia: { body: { background: "#f4ecd8", color: "#5b4636" } },
-    dark:  { body: { background: "#1b1b1d", color: "#e8e6e1" } }
-  };
-
-  function showError(msg) {
-    errorBanner.className = "";
-    errorBanner.textContent = msg;
-    errorBanner.style.display = "block";
-    setTimeout(function () { errorBanner.style.display = "none"; }, 6000);
+  function toast(msg, info=false){ const el=$('toast'); el.textContent=msg; el.className=info?'info':''; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>el.style.display='none',5000); }
+  function humanBytes(n){ if(!n) return ''; if(n<1024*1024) return (n/1024).toFixed(1)+' KB'; return (n/1024/1024).toFixed(1)+' MB'; }
+  async function api(action, extra={}){
+    const r=await fetch('/api/guide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,key:guideKey,...extra})});
+    const data=await r.json().catch(()=>({}));
+    if(r.status===401){ localStorage.removeItem(KEY_NAME); guideKey=''; throw new Error('Wrong passkey'); }
+    if(!r.ok) throw new Error(data.error || 'Request failed ('+r.status+')');
+    return data;
   }
 
-  function showInfo(msg) {
-    errorBanner.className = "info";
-    errorBanner.textContent = msg;
-    errorBanner.style.display = "block";
-    setTimeout(function () { errorBanner.style.display = "none"; }, 3000);
+  async function unlock(){
+    const typed=$('keyInput').value.trim(); if(typed) guideKey=typed;
+    if(!guideKey) return toast('Enter your guide passkey.');
+    try{
+      const st=await api('status');
+      localStorage.setItem(KEY_NAME,guideKey);
+      $('locked').classList.add('hidden'); $('unlocked').classList.remove('hidden');
+      renderStatus(st);
+    }catch(e){ toast(e.message); }
   }
-
-  function setAppTheme(name) {
-    document.documentElement.setAttribute("data-theme", name === "dark" ? "dark" : "light");
-  }
-
-  var GUIDE_KEY_STORAGE = "dopperu-guide-key";
-
-  function getStoredGuideKey() { return localStorage.getItem(GUIDE_KEY_STORAGE) || ""; }
-  function setStoredGuideKey(k) { if (k) localStorage.setItem(GUIDE_KEY_STORAGE, k); }
-  function clearStoredGuideKey() { localStorage.removeItem(GUIDE_KEY_STORAGE); }
-
-  function idFor(file, metadataIdentifier) {
-    if (metadataIdentifier) return "id:" + metadataIdentifier;
-    return "file:" + (file && file.name ? file.name : "guide") + ":" + (file && file.size ? file.size : 0);
-  }
-
-  async function getGuideKey(forcePrompt) {
-    var key = forcePrompt ? "" : getStoredGuideKey();
-    if (!key) key = window.prompt("DOPPERU passkey");
-    if (!key) return "";
-    return key;
-  }
-
-  async function requestGuide(action, key) {
-    return fetch("/api/guide", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: key, action: action }),
-      cache: "no-store"
-    });
-  }
-
-  function openArrayBuffer(arrayBuffer, fileMeta) {
-    if (book) {
-      book.destroy();
-      book = null;
+  function renderStatus(st){
+    if(st.exists){
+      $('statusTitle').textContent='EPUB saved and ready';
+      $('statusDetail').textContent=(st.size?humanBytes(st.size)+' · ':'')+'Available on every device after unlocking.';
+      $('openReaderBtn').classList.remove('hidden'); $('deleteBtn').classList.remove('hidden');
+      $('uploadPrompt').textContent='Choose another EPUB to replace the shared guide.';
+    }else{
+      $('statusTitle').textContent='No EPUB uploaded yet';
+      $('statusDetail').textContent='Upload it once here; Vercel Blob will keep it for all devices.';
+      $('openReaderBtn').classList.add('hidden'); $('deleteBtn').classList.add('hidden');
+      $('uploadPrompt').textContent='Choose the EPUB you want to save as the shared guide.';
     }
+  }
 
-    book = ePub(arrayBuffer);
+  async function uploadFile(file){
+    if(!file) return;
+    if(!/\.epub$/i.test(file.name)) return toast('Please choose an .epub file.');
+    if(!guideKey) return toast('Unlock first.');
 
-    book.ready.then(function () {
-      return book.loaded.metadata;
-    }).then(function (metadata) {
-      var title = (metadata && metadata.title) || (fileMeta && fileMeta.name) || "Untitled";
-      currentBookId = idFor(fileMeta || { name: title, size: 0 }, metadata && metadata.identifier);
-      bookTitleEl.textContent = title;
+    // Open the future reader tab immediately from the user gesture, avoiding popup blockers.
+    const readerTab=window.open('about:blank','_blank');
+    if(readerTab){ readerTab.document.write('<!doctype html><meta name="viewport" content="width=device-width"><title>Uploading…</title><body style="font-family:-apple-system,sans-serif;padding:40px;text-align:center"><h2>Uploading your guide…</h2><p>This tab will become the reader when the upload is complete.</p></body>'); }
 
-      landing.classList.add("hidden");
-      readerWrap.classList.remove("hidden");
-      tocToggle.style.display = "";
-      settingsToggle.style.display = "";
-      closeBookBtn.style.display = "";
-
-      rendition = book.renderTo(viewerEl, {
-        width: "100%",
-        height: "100%",
-        spread: "auto",
-        flow: "paginated"
-      });
-
-      Object.keys(THEMES).forEach(function (name) {
-        rendition.themes.register(name, THEMES[name]);
-      });
-      var savedTheme = localStorage.getItem("epub-theme") || "light";
-      themeSelect.value = savedTheme;
-      rendition.themes.select(savedTheme);
-      rendition.themes.fontSize(fontSize + "%");
-      setAppTheme(savedTheme === "dark" ? "dark" : "light");
-
-      var savedCfi = localStorage.getItem("epub-pos-" + currentBookId);
-      rendition.display(savedCfi || undefined);
-
-      rendition.on("relocated", function (location) {
-        localStorage.setItem("epub-pos-" + currentBookId, location.start.cfi);
-        if (book.locations && book.locations.length()) {
-          var pct = book.locations.percentageFromCfi(location.start.cfi);
-          progressFill.style.width = (pct * 100).toFixed(1) + "%";
-          statusLine.textContent = Math.round(pct * 100) + "% through the book" +
-            "  •  " + (location.start.location || "") + " of " + book.locations.length();
-        } else {
-          statusLine.textContent = "Page " + (location.start.displayed.page || "?") +
-            " of " + (location.start.displayed.total || "?") + " (this section)";
+    $('uploadProgress').classList.remove('hidden');
+    $('uploadFill').style.width='0%'; $('uploadPercent').textContent='0%'; $('uploadLabel').textContent='Preparing secure upload…';
+    $('fileInput').disabled=true;
+    try{
+      const mod=await import('https://esm.sh/@vercel/blob@2.6.1/client');
+      $('uploadLabel').textContent='Uploading '+file.name;
+      await mod.upload('guide.epub',file,{
+        access:'private',
+        handleUploadUrl:'/api/upload',
+        clientPayload:JSON.stringify({key:guideKey}),
+        multipart:true,
+        onUploadProgress(p){
+          const pct=Math.max(0,Math.min(100,Math.round(p.percentage || 0)));
+          $('uploadFill').style.width=pct+'%'; $('uploadPercent').textContent=pct+'%';
+          const loaded=p.loaded ? humanBytes(p.loaded) : '';
+          const total=p.total ? humanBytes(p.total) : humanBytes(file.size);
+          $('uploadLabel').textContent='Uploading'+(loaded?' '+loaded+' / '+total:'…');
         }
       });
-
-      rendition.on("rendered", function () {
-        applyThemeToFrame();
-      });
-
-      book.locations.generate(1600).catch(function () {});
-
-      return book.loaded.navigation;
-    }).then(function (nav) {
-      buildToc(nav.toc);
-    }).catch(function (err) {
-      console.error(err);
-      showError("Failed to open EPUB: " + (err && err.message ? err.message : "unknown error"));
-    });
+      $('uploadFill').style.width='100%'; $('uploadPercent').textContent='100%'; $('uploadLabel').textContent='Saving to private library…';
+      await api('finalize');
+      const st=await api('status'); renderStatus(st);
+      $('uploadLabel').textContent='Saved — opening reader';
+      toast('Upload complete. The guide is now available on all devices.',true);
+      if(readerTab) readerTab.location.href=location.origin+'/?reader=1';
+      else window.open(location.origin+'/?reader=1','_blank');
+    }catch(e){
+      console.error(e); toast('Upload failed: '+e.message);
+      $('uploadLabel').textContent='Upload failed';
+      if(readerTab){ readerTab.document.body.innerHTML='<div style="font-family:-apple-system,sans-serif;padding:40px;text-align:center"><h2>Upload failed</h2><p>'+String(e.message).replace(/[<>]/g,'')+'</p><button onclick="window.close()">Close</button></div>'; }
+    }finally{ $('fileInput').disabled=false; $('fileInput').value=''; }
   }
 
-  function applyThemeToFrame() {
-    // no-op placeholder in case future per-frame tweaks are needed
+  async function deleteGuide(){
+    if(!confirm('Remove the saved EPUB from the private library?')) return;
+    try{ await api('delete'); renderStatus({exists:false}); toast('Saved EPUB removed.',true); }catch(e){toast(e.message);}
   }
 
-  async function loadPrivateGuide(forcePrompt) {
-    var key = await getGuideKey(forcePrompt);
-    if (!key) return;
-
-    try {
-      dropZone.querySelector("h1").textContent = "Opening…";
-      dropZone.querySelector("p").textContent = "Loading the private Lonely Planet EPUB.";
-      if (landingUnlockBtn) landingUnlockBtn.disabled = true;
-
-      var response = await requestGuide("read", key);
-
-      if (response.status === 401) {
-        clearStoredGuideKey();
-        throw new Error("Wrong passkey");
-      }
-      if (response.status === 404) {
-        throw new Error("No EPUB is stored yet. Use Upload / replace EPUB below.");
-      }
-      if (!response.ok) {
-        var detail = "";
-        try {
-          var data = await response.json();
-          detail = data && data.error ? ": " + data.error : "";
-        } catch (e) {}
-        throw new Error("Guide access failed (" + response.status + ")" + detail);
-      }
-
-      var buf = await response.arrayBuffer();
-      if (!buf || buf.byteLength < 1000) throw new Error("The guide response was empty or incomplete.");
-
-      setStoredGuideKey(key);
-      if (manageToggle) manageToggle.style.display = "";
-      openArrayBuffer(buf, { name: "Lonely Planet Peru.epub", size: buf.byteLength });
-    } catch (err) {
-      console.error(err);
-      landing.classList.remove("hidden");
-      readerWrap.classList.add("hidden");
-      dropZone.querySelector("h1").textContent = "Lonely Planet Peru";
-      dropZone.querySelector("p").textContent = "Private guide. Unlock it, upload an EPUB, or remove the stored one.";
-      showError(err && err.message ? err.message : "Could not open guide.");
-    } finally {
-      if (landingUnlockBtn) landingUnlockBtn.disabled = false;
+  // Reader
+  const THEMES={light:{body:{background:'#f3efe7',color:'#222'}},sepia:{body:{background:'#f4ecd8',color:'#5b4636'}},dark:{body:{background:'#18191a',color:'#eee'}}};
+  async function loadPrivateBook(){
+    if(!guideKey){
+      const entered=prompt('Guide passkey'); if(!entered){ location.href='/'; return; }
+      guideKey=entered.trim(); localStorage.setItem(KEY_NAME,guideKey);
     }
-  }
-
-  async function uploadGuide(file) {
-    if (!file) return;
-    if (!/\.epub$/i.test(file.name)) {
-      showError("Please choose an .epub file.");
-      return;
-    }
-
-    var key = await getGuideKey(false);
-    if (!key) return;
-
-    try {
-      uploadProgress.textContent = "Preparing secure upload…";
-      var tokenResponse = await requestGuide("upload-url", key);
-      if (tokenResponse.status === 401) {
-        clearStoredGuideKey();
-        throw new Error("Wrong passkey");
-      }
-      if (!tokenResponse.ok) {
-        var tokenData = await tokenResponse.json().catch(function(){ return {}; });
-        throw new Error("Could not prepare upload" + (tokenData.error ? ": " + tokenData.error : ""));
-      }
-      var data = await tokenResponse.json();
-
-      uploadProgress.textContent = "Uploading " + Math.round(file.size / 1024 / 1024) + " MB directly to private Blob…";
-      var putResponse = await fetch(data.url, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "application/epub+zip" },
-        body: file
-      });
-      if (!putResponse.ok) {
-        var text = await putResponse.text().catch(function(){ return ""; });
-        throw new Error("Blob upload failed (" + putResponse.status + ")" + (text ? ": " + text.slice(0,180) : ""));
-      }
-
-      setStoredGuideKey(key);
-      uploadProgress.textContent = "Uploaded. Opening…";
-      showInfo("EPUB uploaded to the private reader-blob store.");
-      setTimeout(function(){ loadPrivateGuide(false); }, 500);
-    } catch (err) {
-      console.error(err);
-      uploadProgress.textContent = "";
-      showError(err && err.message ? err.message : "Upload failed.");
-    } finally {
-      if (uploadInput) uploadInput.value = "";
-    }
-  }
-
-  async function removeStoredGuide() {
-    var key = await getGuideKey(false);
-    if (!key) return;
-    if (!window.confirm("Remove Lonely Planet Peru.epub from the private Blob store?")) return;
-
-    try {
-      var response = await requestGuide("delete", key);
-      if (response.status === 401) {
-        clearStoredGuideKey();
-        throw new Error("Wrong passkey");
-      }
-      if (!response.ok) {
-        var data = await response.json().catch(function(){ return {}; });
-        throw new Error("Remove failed" + (data.error ? ": " + data.error : ""));
-      }
-      if (book) { book.destroy(); book = null; }
-      rendition = null;
-      readerWrap.classList.add("hidden");
-      landing.classList.remove("hidden");
-      dropZone.querySelector("h1").textContent = "No guide stored";
-      dropZone.querySelector("p").textContent = "Upload an EPUB once and this reader will keep using that private Blob.";
-      uploadProgress.textContent = "";
-      showInfo("Stored EPUB removed.");
-    } catch (err) {
-      console.error(err);
-      showError(err && err.message ? err.message : "Could not remove book.");
-    }
-  }
-
-  function buildToc(toc) {
-    tocList.innerHTML = "";
-    function renderItems(items, container) {
-      items.forEach(function (item) {
-        var a = document.createElement("a");
-        a.href = "#";
-        a.textContent = item.label ? item.label.trim() : item.href;
-        a.addEventListener("click", function (e) {
-          e.preventDefault();
-          rendition.display(item.href);
-          tocPanel.classList.remove("open");
-        });
-        container.appendChild(a);
-        if (item.subitems && item.subitems.length) {
-          var sub = document.createElement("div");
-          sub.style.marginLeft = "14px";
-          renderItems(item.subitems, sub);
-          container.appendChild(sub);
+    $('loadingTitle').textContent='Opening your guide…'; $('loadingText').textContent='Loading from the private library.';
+    try{
+      const r=await fetch('/api/guide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read',key:guideKey})});
+      if(r.status===401){ localStorage.removeItem(KEY_NAME); guideKey=''; throw new Error('Wrong passkey'); }
+      if(r.status===404) throw new Error('No EPUB has been uploaded yet.');
+      if(!r.ok){ const x=await r.json().catch(()=>({})); throw new Error(x.error || 'Could not load guide ('+r.status+')'); }
+      const total=parseInt(r.headers.get('Content-Length')||'0',10);
+      const reader=r.body?.getReader(); let loaded=0; const chunks=[];
+      if(reader){
+        while(true){ const {done,value}=await reader.read(); if(done) break; chunks.push(value); loaded+=value.byteLength;
+          if(total){ const pct=Math.min(100,Math.round(loaded/total*100)); $('loadFill').style.width=pct+'%'; $('loadPercent').textContent=pct+'%'; $('loadAmount').textContent=humanBytes(loaded)+' / '+humanBytes(total); }
+          else $('loadAmount').textContent=humanBytes(loaded)+' loaded';
         }
-      });
+        const bytes=new Uint8Array(loaded); let offset=0; for(const c of chunks){bytes.set(c,offset);offset+=c.byteLength;} await openBook(bytes.buffer);
+      } else { const buf=await r.arrayBuffer(); await openBook(buf); }
+    }catch(e){
+      console.error(e); $('loadingTitle').textContent='Could not open guide'; $('loadingText').textContent=e.message; $('loadAmount').textContent=''; $('loadPercent').textContent=''; toast(e.message);
     }
-    renderItems(toc, tocList);
   }
-
-  function closeBook() {
-    if (book) { book.destroy(); book = null; }
-    rendition = null;
-    currentBookId = null;
-    readerWrap.classList.add("hidden");
-    landing.classList.remove("hidden");
-    tocToggle.style.display = "none";
-    settingsToggle.style.display = "none";
-    closeBookBtn.style.display = "none";
-    tocPanel.classList.remove("open");
-    settingsPanel.classList.remove("open");
-    bookTitleEl.textContent = "";
-    dropZone.querySelector("h1").textContent = "Lonely Planet Peru";
-    dropZone.querySelector("p").textContent = "Private guide. Unlock it, upload an EPUB, or remove the stored one.";
+  async function openBook(buffer){
+    $('loadingTitle').textContent='Preparing pages…'; $('loadingText').textContent='Almost ready.'; $('loadFill').style.width='100%'; $('loadPercent').textContent='100%';
+    book=ePub(buffer);
+    const metadata=await book.loaded.metadata.catch(()=>null); $('bookTitle').textContent=metadata?.title || 'Lonely Planet Peru';
+    rendition=book.renderTo('viewer',{width:'100%',height:'100%',flow:'paginated',spread:window.innerWidth<800?'none':'auto'});
+    Object.entries(THEMES).forEach(([n,t])=>rendition.themes.register(n,t));
+    const theme=localStorage.getItem('epub-theme')||'light'; $('themeSelect').value=theme; rendition.themes.select(theme); rendition.themes.fontSize(fontSize+'%'); setAppTheme(theme);
+    const id='shared-guide'; const saved=localStorage.getItem('epub-pos-'+id); await rendition.display(saved||undefined);
+    rendition.on('relocated',loc=>{ localStorage.setItem('epub-pos-'+id,loc.start.cfi); if(book.locations?.length()){
+      const pct=book.locations.percentageFromCfi(loc.start.cfi)||0; $('readerFill').style.width=(pct*100).toFixed(1)+'%'; $('readerStatus').textContent=Math.round(pct*100)+'% through the book';
+    } else $('readerStatus').textContent='Page '+(loc.start.displayed?.page||'')+' of '+(loc.start.displayed?.total||''); });
+    book.locations.generate(1600).catch(()=>{});
+    const nav=await book.loaded.navigation.catch(()=>null); buildToc(nav?.toc||[]);
+    $('readerLoading').classList.add('hidden');
   }
+  function buildToc(items){ const root=$('tocList'); root.innerHTML=''; const draw=(xs,parent)=>xs.forEach(item=>{ const a=document.createElement('a'); a.href='#'; a.textContent=(item.label||item.href||'').trim(); a.onclick=e=>{e.preventDefault();rendition.display(item.href);$('toc').classList.remove('open');}; parent.appendChild(a); if(item.subitems?.length){const d=document.createElement('div');d.style.marginLeft='13px';draw(item.subitems,d);parent.appendChild(d);}}); draw(items,root); }
+  function setAppTheme(theme){document.documentElement.dataset.theme=theme==='dark'?'dark':'';document.querySelector('meta[name="theme-color"]').content=theme==='dark'?'#18191a':'#f3efe7';}
 
-  // ---- Events ----
-  if (landingUnlockBtn) landingUnlockBtn.addEventListener("click", function () { loadPrivateGuide(true); });
-  if (uploadInput) uploadInput.addEventListener("change", function (e) { uploadGuide(e.target.files && e.target.files[0]); });
-  if (removeBookBtn) removeBookBtn.addEventListener("click", removeStoredGuide);
-  if (manageToggle) manageToggle.addEventListener("click", function () {
-    if (book) { book.destroy(); book = null; }
-    rendition = null;
-    readerWrap.classList.add("hidden");
-    landing.classList.remove("hidden");
-    dropZone.querySelector("h1").textContent = "Manage private guide";
-    dropZone.querySelector("p").textContent = "Upload a replacement EPUB or remove the stored book.";
-  });
+  $('unlockBtn').onclick=unlock; $('keyInput').addEventListener('keydown',e=>{if(e.key==='Enter')unlock();});
+  $('forgetKeyBtn').onclick=()=>{localStorage.removeItem(KEY_NAME);guideKey='';location.reload();};
+  $('openReaderBtn').onclick=()=>window.open(location.origin+'/?reader=1','_blank');
+  $('deleteBtn').onclick=deleteGuide;
+  $('fileInput').onchange=e=>uploadFile(e.target.files?.[0]);
+  const zone=$('uploadZone'); ['dragenter','dragover'].forEach(n=>zone.addEventListener(n,e=>{e.preventDefault();zone.classList.add('drag');})); ['dragleave','drop'].forEach(n=>zone.addEventListener(n,e=>{e.preventDefault();zone.classList.remove('drag');})); zone.addEventListener('drop',e=>uploadFile(e.dataTransfer.files?.[0]));
+  $('tocBtn').onclick=()=>$('toc').classList.toggle('open'); $('settingsBtn').onclick=()=>$('settings').classList.toggle('open'); $('libraryBtn').onclick=()=>{location.href='/';};
+  $('prevBtn').onclick=()=>rendition?.prev(); $('nextBtn').onclick=()=>rendition?.next(); $('topPrevBtn').onclick=()=>rendition?.prev(); $('topNextBtn').onclick=()=>rendition?.next();
+  $('fontUp').onclick=()=>{fontSize=Math.min(200,fontSize+10);localStorage.setItem('epub-fontsize',fontSize);rendition?.themes.fontSize(fontSize+'%');};
+  $('fontDown').onclick=()=>{fontSize=Math.max(60,fontSize-10);localStorage.setItem('epub-fontsize',fontSize);rendition?.themes.fontSize(fontSize+'%');};
+  $('themeSelect').onchange=e=>{const t=e.target.value;localStorage.setItem('epub-theme',t);rendition?.themes.select(t);setAppTheme(t);};
+  document.addEventListener('keydown',e=>{if(!rendition)return;if(e.key==='ArrowLeft')rendition.prev();if(e.key==='ArrowRight')rendition.next();});
 
-  document.getElementById("nav-prev").addEventListener("click", function () {
-    if (rendition) rendition.prev();
-  });
-  document.getElementById("nav-next").addEventListener("click", function () {
-    if (rendition) rendition.next();
-  });
+  // Mobile swipe navigation. Ignore mostly-vertical gestures so normal page interaction still works.
+  let touchX=0,touchY=0;
+  $('readerApp').addEventListener('touchstart',e=>{const t=e.changedTouches?.[0];if(t){touchX=t.clientX;touchY=t.clientY;}},{passive:true});
+  $('readerApp').addEventListener('touchend',e=>{if(!rendition)return;const t=e.changedTouches?.[0];if(!t)return;const dx=t.clientX-touchX,dy=t.clientY-touchY;if(Math.abs(dx)>55 && Math.abs(dx)>Math.abs(dy)*1.25){if(dx<0)rendition.next();else rendition.prev();}},{passive:true});
 
-  document.addEventListener("keydown", function (e) {
-    if (!rendition) return;
-    if (e.key === "ArrowLeft") rendition.prev();
-    if (e.key === "ArrowRight") rendition.next();
-  });
-
-  tocToggle.addEventListener("click", function () {
-    tocPanel.classList.toggle("open");
-  });
-
-  settingsToggle.addEventListener("click", function () {
-    settingsPanel.classList.toggle("open");
-  });
-  document.addEventListener("click", function (e) {
-    if (!settingsPanel.contains(e.target) && e.target !== settingsToggle) {
-      settingsPanel.classList.remove("open");
-    }
-  });
-
-  document.getElementById("font-inc").addEventListener("click", function () {
-    fontSize = Math.min(200, fontSize + 10);
-    localStorage.setItem("epub-fontsize", fontSize);
-    if (rendition) rendition.themes.fontSize(fontSize + "%");
-  });
-  document.getElementById("font-dec").addEventListener("click", function () {
-    fontSize = Math.max(60, fontSize - 10);
-    localStorage.setItem("epub-fontsize", fontSize);
-    if (rendition) rendition.themes.fontSize(fontSize + "%");
-  });
-
-  themeSelect.addEventListener("change", function () {
-    var val = themeSelect.value;
-    localStorage.setItem("epub-theme", val);
-    if (rendition) rendition.themes.select(val);
-    setAppTheme(val === "dark" ? "dark" : "light");
-  });
-
-  closeBookBtn.addEventListener("click", closeBook);
-
-  // ---- init ----
-  loadPrivateGuide(false);
+  const readerMode=new URLSearchParams(location.search).get('reader')==='1';
+  if(readerMode){ library.classList.add('hidden'); readerApp.classList.remove('hidden'); loadPrivateBook(); }
+  else if(guideKey){ $('keyInput').value=guideKey; unlock(); }
 })();
 </script>
 </body>

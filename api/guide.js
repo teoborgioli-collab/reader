@@ -18,13 +18,23 @@ function verifyKey(req) {
   }
 }
 
+function isNotFound(error) {
+  const text = String(error?.message || error).toLowerCase();
+  return text.includes('not found') ||
+    text.includes('404') ||
+    text.includes('does not exist') ||
+    text.includes('blobnotfound');
+}
+
 async function exists(pathname) {
   try {
     const info = await head(pathname, { access: 'private' });
     return info || null;
   } catch (error) {
-    const text = String(error?.message || error).toLowerCase();
-    if (text.includes('not found') || text.includes('404')) return null;
+    // Vercel currently reports a missing private blob as
+    // "The requested blob does not exist" rather than always using 404.
+    // Missing guide is a normal first-use state, not an application error.
+    if (isNotFound(error)) return null;
     throw error;
   }
 }
@@ -72,8 +82,7 @@ export default async function handler(req, res) {
       try {
         await del(LEGACY, { access: 'private' });
       } catch (error) {
-        const text = String(error?.message || error).toLowerCase();
-        if (!text.includes('not found') && !text.includes('404')) {
+        if (!isNotFound(error)) {
           console.warn('LEGACY_DELETE_WARNING', error);
         }
       }
@@ -85,8 +94,7 @@ export default async function handler(req, res) {
       try {
         await del(TARGET, { access: 'private' });
       } catch (error) {
-        const text = String(error?.message || error).toLowerCase();
-        if (!text.includes('not found') && !text.includes('404')) throw error;
+        if (!isNotFound(error)) throw error;
       }
       return res.status(200).json({ ok: true });
     }

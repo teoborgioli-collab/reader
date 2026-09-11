@@ -148,42 +148,91 @@
     if(!file) return;
     if(!/\.epub$/i.test(file.name)) return toast('Please choose an .epub file.');
     if(!guideKey) return toast('Unlock first.');
+    if(file.size > 500 * 1024 * 1024) return toast('That EPUB is larger than the 500 MB upload limit.');
 
     // Open the future reader tab immediately from the user gesture, avoiding popup blockers.
     const readerTab=window.open('about:blank','_blank');
-    if(readerTab){ readerTab.document.write('<!doctype html><meta name="viewport" content="width=device-width"><title>Uploading…</title><body style="font-family:-apple-system,sans-serif;padding:40px;text-align:center"><h2>Uploading your guide…</h2><p>This tab will become the reader when the upload is complete.</p></body>'); }
+    if(readerTab){
+      readerTab.document.write('<!doctype html><meta name="viewport" content="width=device-width"><title>Uploading…</title><body style="font-family:-apple-system,sans-serif;padding:40px;text-align:center"><h2>Uploading your guide…</h2><p>This tab will become the reader when the upload is complete.</p></body>');
+    }
 
     $('uploadProgress').classList.remove('hidden');
-    $('uploadFill').style.width='0%'; $('uploadPercent').textContent='0%'; $('uploadLabel').textContent='Preparing secure upload…';
+    $('uploadFill').style.width='0%';
+    $('uploadPercent').textContent='0%';
+    $('uploadLabel').textContent='Preparing secure private upload…';
     $('fileInput').disabled=true;
+
     try{
-      const mod=await import('https://esm.sh/@vercel/blob@2.6.1/client');
-      $('uploadLabel').textContent='Uploading '+file.name;
-      await mod.upload('guide.epub',file,{
-        access:'private',
-        handleUploadUrl:'/api/upload',
-        clientPayload:JSON.stringify({key:guideKey}),
-        multipart:true,
-        onUploadProgress(p){
-          const pct=Math.max(0,Math.min(100,Math.round(p.percentage || 0)));
-          $('uploadFill').style.width=pct+'%'; $('uploadPercent').textContent=pct+'%';
-          const loaded=p.loaded ? humanBytes(p.loaded) : '';
-          const total=p.total ? humanBytes(p.total) : humanBytes(file.size);
-          $('uploadLabel').textContent='Uploading'+(loaded?' '+loaded+' / '+total:'…');
-        }
+      // Ask our server for a short-lived PUT URL scoped only to guide.epub.
+      // This avoids @vercel/blob/client's client-token path, which does not
+      // currently support private client uploads.
+      const prep=await fetch('/api/upload',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({key:guideKey})
       });
-      $('uploadFill').style.width='100%'; $('uploadPercent').textContent='100%'; $('uploadLabel').textContent='Saving to private library…';
+      const prepData=await prep.json().catch(()=>({}));
+      if(prep.status===401){ localStorage.removeItem(KEY_NAME); guideKey=''; throw new Error('Wrong passkey'); }
+      if(!prep.ok || !prepData.url) throw new Error(prepData.error || 'Could not prepare private upload ('+prep.status+')');
+
+      $('uploadLabel').textContent='Uploading '+file.name;
+
+      // XMLHttpRequest gives reliable upload progress on iPhone/Safari.
+      await new Promise((resolve,reject)=>{
+        const xhr=new XMLHttpRequest();
+        xhr.open('PUT',prepData.url,true);
+        xhr.setRequestHeader('Content-Type','application/epub+zip');
+        xhr.upload.onprogress=(ev)=>{
+          const total=ev.lengthComputable ? ev.total : file.size;
+          const loaded=ev.loaded || 0;
+          const pct=total ? Math.max(0,Math.min(100,Math.round(loaded/total*100))) : 0;
+          $('uploadFill').style.width=pct+'%';
+          $('uploadPercent').textContent=pct+'%';
+          $('uploadLabel').textContent='Uploading '+humanBytes(loaded)+' / '+humanBytes(total || file.size);
+        };
+        xhr.onerror=()=>reject(new Error('Network error while uploading'));
+        xhr.onabort=()=>reject(new Error('Upload cancelled'));
+        xhr.onload=()=>{
+          if(xhr.status>=200 && xhr.status<300) resolve();
+          else {
+            let msg='Blob upload failed ('+xhr.status+')';
+            try{ const d=JSON.parse(xhr.responseText||'{}'); if(d.error) msg=d.error; }
+            catch(_e){}
+            reject(new Error(msg));
+          }
+        };
+        xhr.send(file);
+      });
+
+      $('uploadFill').style.width='100%';
+      $('uploadPercent').textContent='100%';
+      $('uploadLabel').textContent='Saving to private library…';
+
+      // Verify that guide.epub is visible before presenting success.
+      let st=null;
+      for(let i=0;i<5;i++){
+        try{ st=await api('status'); if(st.exists) break; }catch(_e){}
+        await new Promise(r=>setTimeout(r,700));
+      }
+      if(!st || !st.exists) throw new Error('Upload finished, but the saved EPUB could not yet be verified. Try Unlock again in a few seconds.');
+
       await api('finalize');
-      const st=await api('status'); renderStatus(st);
+      renderStatus(st);
       $('uploadLabel').textContent='Saved — opening reader';
       toast('Upload complete. The guide is now available on all devices.',true);
       if(readerTab) readerTab.location.href=location.origin+'/?reader=1';
       else window.open(location.origin+'/?reader=1','_blank');
     }catch(e){
-      console.error(e); toast('Upload failed: '+e.message);
+      console.error(e);
+      toast('Upload failed: '+e.message);
       $('uploadLabel').textContent='Upload failed';
-      if(readerTab){ readerTab.document.body.innerHTML='<div style="font-family:-apple-system,sans-serif;padding:40px;text-align:center"><h2>Upload failed</h2><p>'+String(e.message).replace(/[<>]/g,'')+'</p><button onclick="window.close()">Close</button></div>'; }
-    }finally{ $('fileInput').disabled=false; $('fileInput').value=''; }
+      if(readerTab){
+        readerTab.document.body.innerHTML='<div style="font-family:-apple-system,sans-serif;padding:40px;text-align:center"><h2>Upload failed</h2><p>'+String(e.message).replace(/[<>]/g,'')+'</p><button onclick="window.close()">Close</button></div>';
+      }
+    }finally{
+      $('fileInput').disabled=false;
+      $('fileInput').value='';
+    }
   }
 
   async function deleteGuide(){

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f3efe7">
-<title>Peru Guide</title>
+<title>EPUB Reader</title>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
 <style>
@@ -28,7 +28,7 @@
 <section id="library">
   <div class="card">
     <div class="eyebrow">DOPPERU · Private Library</div>
-    <h1>Lonely Planet Peru</h1>
+    <h1>EPUB Reader</h1>
     <p class="lead">Upload the EPUB once. It is saved privately in Vercel Blob and can then be opened from any device with your guide passkey.</p>
 
     <div id="locked">
@@ -70,7 +70,7 @@
   <div class="topbar">
     <button id="tocBtn" title="Contents">☰</button>
     <button id="topPrevBtn" class="pageBtn" title="Previous page">← <span class="word">Previous</span></button>
-    <div id="bookTitle" class="booktitle">Lonely Planet Peru</div>
+    <div id="bookTitle" class="booktitle">EPUB Reader</div>
     <button id="topNextBtn" class="pageBtn" title="Next page"><span class="word">Next</span> →</button>
     <button id="settingsBtn" title="Display settings">Aa</button>
     <button id="libraryBtn" title="Library">⌂</button>
@@ -240,9 +240,52 @@
     try{ await api('delete'); renderStatus({exists:false}); toast('Saved EPUB removed.',true); }catch(e){toast(e.message);}
   }
 
+  /* Match a chapter by its table-of-contents label — accents and case
+     ignored, so "Arequipa" finds "Arequipa & Canyon Country". Keeps the
+     planner free of any hard-coded chapter map. */
+  function norm(s){ return String(s||'').normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().trim(); }
+  function findChapter(items, want){
+    const w=norm(want); if(!w) return null;
+    let best=null;
+    const walk=(xs)=>xs.forEach(it=>{
+      const label=norm(it.label);
+      if(!best && label && (label===w || label.includes(w) || w.includes(label))) best=it.href;
+      if(it.subitems?.length) walk(it.subitems);
+    });
+    walk(items||[]);
+    return best;
+  }
+
+  /* Opened from the trip planner: the book itself arrives as a plain URL, so
+     no passkey and no private library are involved on this path. */
+  async function loadBookFromUrl(url, chapter){
+    $('loadingTitle').textContent='Opening the guide…';
+    $('loadingText').textContent=chapter ? 'Looking for the “'+chapter+'” chapter.' : 'Loading the shared guide.';
+    try{
+      const r=await fetch(url,{cache:'no-store'});
+      if(!r.ok) throw new Error('Could not download the guide ('+r.status+')');
+      const total=parseInt(r.headers.get('Content-Length')||'0',10);
+      const reader=r.body?.getReader(); let loaded=0; const chunks=[];
+      if(reader){
+        while(true){ const {done,value}=await reader.read(); if(done) break; chunks.push(value); loaded+=value.byteLength;
+          if(total){ const pct=Math.min(100,Math.round(loaded/total*100)); $('loadFill').style.width=pct+'%'; $('loadPercent').textContent=pct+'%'; $('loadAmount').textContent=humanBytes(loaded)+' / '+humanBytes(total); }
+          else $('loadAmount').textContent=humanBytes(loaded)+' loaded';
+        }
+        const bytes=new Uint8Array(loaded); let offset=0; for(const c of chunks){bytes.set(c,offset);offset+=c.byteLength;}
+        await openBook(bytes.buffer, posIdFor(url), chapter);
+      } else {
+        await openBook(await r.arrayBuffer(), posIdFor(url), chapter);
+      }
+    }catch(e){
+      console.error(e); $('loadingTitle').textContent='Could not open the guide'; $('loadingText').textContent=e.message;
+      $('loadAmount').textContent=''; $('loadPercent').textContent=''; toast(e.message);
+    }
+  }
+  function posIdFor(url){ try{ return 'url-'+new URL(url,location.href).pathname.split('/').pop(); }catch(e){ return 'shared-guide'; } }
+
   // Reader
   const THEMES={light:{body:{background:'#f3efe7',color:'#222'}},sepia:{body:{background:'#f4ecd8',color:'#5b4636'}},dark:{body:{background:'#18191a',color:'#eee'}}};
-  async function loadPrivateBook(){
+  async function loadPrivateBook(chapter){
     if(!guideKey){
       const entered=prompt('Guide passkey'); if(!entered){ location.href='/'; return; }
       guideKey=entered.trim(); localStorage.setItem(KEY_NAME,guideKey);
@@ -260,25 +303,35 @@
           if(total){ const pct=Math.min(100,Math.round(loaded/total*100)); $('loadFill').style.width=pct+'%'; $('loadPercent').textContent=pct+'%'; $('loadAmount').textContent=humanBytes(loaded)+' / '+humanBytes(total); }
           else $('loadAmount').textContent=humanBytes(loaded)+' loaded';
         }
-        const bytes=new Uint8Array(loaded); let offset=0; for(const c of chunks){bytes.set(c,offset);offset+=c.byteLength;} await openBook(bytes.buffer);
-      } else { const buf=await r.arrayBuffer(); await openBook(buf); }
+        const bytes=new Uint8Array(loaded); let offset=0; for(const c of chunks){bytes.set(c,offset);offset+=c.byteLength;} await openBook(bytes.buffer,'shared-guide',chapter);
+      } else { const buf=await r.arrayBuffer(); await openBook(buf,'shared-guide',chapter); }
     }catch(e){
       console.error(e); $('loadingTitle').textContent='Could not open guide'; $('loadingText').textContent=e.message; $('loadAmount').textContent=''; $('loadPercent').textContent=''; toast(e.message);
     }
   }
-  async function openBook(buffer){
+  async function openBook(buffer, posId, chapter){
+    posId = posId || 'shared-guide';
     $('loadingTitle').textContent='Preparing pages…'; $('loadingText').textContent='Almost ready.'; $('loadFill').style.width='100%'; $('loadPercent').textContent='100%';
     book=ePub(buffer);
-    const metadata=await book.loaded.metadata.catch(()=>null); $('bookTitle').textContent=metadata?.title || 'Lonely Planet Peru';
+    const metadata=await book.loaded.metadata.catch(()=>null); $('bookTitle').textContent=metadata?.title || 'EPUB Reader';
     rendition=book.renderTo('viewer',{width:'100%',height:'100%',flow:'paginated',spread:window.innerWidth<800?'none':'auto'});
     Object.entries(THEMES).forEach(([n,t])=>rendition.themes.register(n,t));
     const theme=localStorage.getItem('epub-theme')||'light'; $('themeSelect').value=theme; rendition.themes.select(theme); rendition.themes.fontSize(fontSize+'%'); setAppTheme(theme);
-    const id='shared-guide'; const saved=localStorage.getItem('epub-pos-'+id); await rendition.display(saved||undefined);
-    rendition.on('relocated',loc=>{ localStorage.setItem('epub-pos-'+id,loc.start.cfi); if(book.locations?.length()){
+    /* the contents have to be known before we can jump to a named chapter,
+       so load them first on that path instead of after the first display */
+    const nav=await book.loaded.navigation.catch(()=>null); const toc=nav?.toc||[]; buildToc(toc);
+    let target=null;
+    if(chapter){
+      target=findChapter(toc,chapter);
+      if(!target) toast('No “'+chapter+'” chapter in this guide — opening where you left off.',true);
+    }
+    const saved=localStorage.getItem('epub-pos-'+posId);
+    await rendition.display(target||saved||undefined);
+    if(target) toast('Jumped to “'+chapter+'”.',true);
+    rendition.on('relocated',loc=>{ localStorage.setItem('epub-pos-'+posId,loc.start.cfi); if(book.locations?.length()){
       const pct=book.locations.percentageFromCfi(loc.start.cfi)||0; $('readerFill').style.width=(pct*100).toFixed(1)+'%'; $('readerStatus').textContent=Math.round(pct*100)+'% through the book';
     } else $('readerStatus').textContent='Page '+(loc.start.displayed?.page||'')+' of '+(loc.start.displayed?.total||''); });
     book.locations.generate(1600).catch(()=>{});
-    const nav=await book.loaded.navigation.catch(()=>null); buildToc(nav?.toc||[]);
     $('readerLoading').classList.add('hidden');
   }
   function buildToc(items){ const root=$('tocList'); root.innerHTML=''; const draw=(xs,parent)=>xs.forEach(item=>{ const a=document.createElement('a'); a.href='#'; a.textContent=(item.label||item.href||'').trim(); a.onclick=e=>{e.preventDefault();rendition.display(item.href);$('toc').classList.remove('open');}; parent.appendChild(a); if(item.subitems?.length){const d=document.createElement('div');d.style.marginLeft='13px';draw(item.subitems,d);parent.appendChild(d);}}); draw(items,root); }
@@ -302,9 +355,17 @@
   $('readerApp').addEventListener('touchstart',e=>{const t=e.changedTouches?.[0];if(t){touchX=t.clientX;touchY=t.clientY;}},{passive:true});
   $('readerApp').addEventListener('touchend',e=>{if(!rendition)return;const t=e.changedTouches?.[0];if(!t)return;const dx=t.clientX-touchX,dy=t.clientY-touchY;if(Math.abs(dx)>55 && Math.abs(dx)>Math.abs(dy)*1.25){if(dx<0)rendition.next();else rendition.prev();}},{passive:true});
 
-  const readerMode=new URLSearchParams(location.search).get('reader')==='1';
-  if(readerMode){ library.classList.add('hidden'); readerApp.classList.remove('hidden'); loadPrivateBook(); }
-  else if(guideKey){ $('keyInput').value=guideKey; unlock(); }
+  const params=new URLSearchParams(location.search);
+  const handedUrl=params.get('url');
+  const wantChapter=params.get('ch')||'';
+  if(handedUrl){
+    library.classList.add('hidden'); readerApp.classList.remove('hidden');
+    loadBookFromUrl(handedUrl, wantChapter);
+  } else if(params.get('reader')==='1'){
+    /* the chapter jump works on the private-library path too, so a link can
+       aim at a chapter without the planner handing over the file */
+    library.classList.add('hidden'); readerApp.classList.remove('hidden'); loadPrivateBook(wantChapter);
+  } else if(guideKey){ $('keyInput').value=guideKey; unlock(); }
 })();
 </script>
 </body>
